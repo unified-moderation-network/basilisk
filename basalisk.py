@@ -38,10 +38,10 @@ def match_handler(pattern_id, start, end, flags, context):
 
 
 def check_match(db, rts, to_check, socket):
-
-    db.scan(
-        to_check, match_event_handler=match_handler, context=(socket, rts),
-    )
+    if __debug__:
+        import logging
+        logging.info("Scanning: %s", to_check)
+    db.scan(to_check, match_event_handler=match_handler, context=(socket, rts))
 
 
 def main():
