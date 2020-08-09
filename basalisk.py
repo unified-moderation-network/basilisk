@@ -61,7 +61,9 @@ def main():
         try:
             msg = sub_socket.recv()
 
-            topic, (rts, to_check) = msgpack.unpackb()
+            topic, (rts, to_check) = msgpack.unpackb(
+                msg, use_list=False, strict_map_key=False
+            )
 
             if topic == LOOK_FOR_MATCH:
                 check_match(db, rts, to_check, push_socket)
