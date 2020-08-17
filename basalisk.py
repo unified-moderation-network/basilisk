@@ -12,10 +12,15 @@ This needs:
   - resume load from serialized state
 """
 
-import msgpack
+import logging
+import sys
+from logging.handlers import RotatingFileHandler
+
 import hyperscan
+import msgpack
 import zmq
 
+log = logging.getLogger("basalisk")
 
 MULTICAST_SUBSCRIBE_ADDR = "tcp://127.0.0.1:5555"
 PULL_REMOTE_ADDR = "tcp://127.0.0.1:5556"
@@ -27,29 +32,41 @@ LOOK_FOR_MATCH = "basalisk.offer"
 INVITE_PATTERN = r"(?i)(discord\.(?:gg|io|me|li)|discord(?:app)?\.com\/invite)\/(\S+)"
 
 
+def only_once(f):
+    has_called = False
+
+    def wrapped(*args, **kwargs):
+        nonlocal has_called
+
+        if not has_called:
+            has_called = True
+            f(*args, **kwargs)
+
+    return wrapped
+
+
 def match_handler(pattern_id, start, end, flags, context):
-
     socket, rts = context
-
     payload = msgpack.packb((MATCH_FOUND_TOPIC, rts))
     socket.send(payload)
 
-    return True
-
 
 def check_match(db, rts, to_check, socket):
-    if __debug__:
-        import logging
-        logging.info("Scanning: %s", to_check)
-    db.scan(to_check, match_event_handler=match_handler, context=(socket, rts))
+    logging.info("Scanning: %s", to_check)
+    db.scan(
+        to_check, match_event_handler=only_once(match_handler), context=(socket, rts)
+    )
 
 
 def main():
 
+    raw_topics = (b"\x92\xaebasalisk.offer",)
+
     ctx = zmq.Context()
     sub_socket = ctx.socket(zmq.SUB)
     push_socket = ctx.socket(zmq.PUSH)
-    sub_socket.setsockopt(zmq.SUBSCRIBE, b"")
+    for raw_topic in raw_topics:
+        sub_socket.setsockopt(zmq.SUBSCRIBE, raw_topic)
     sub_socket.connect(MULTICAST_SUBSCRIBE_ADDR)
     push_socket.connect(PULL_REMOTE_ADDR)
 
@@ -69,9 +86,20 @@ def main():
                 check_match(db, rts, to_check, push_socket)
 
         except Exception as exc:
-            if __debug__:
-                # This is a really lazy way of letting me peek at this for now
-                # is something goes wrong.
-                import logging
+            log.exception(
+                "Error when scanning %s from payload %s", to_check, msg, exc_info=exc
+            )
 
-                logging.exception(f"???: {msg}", exc_info=exc)
+
+if __name__ == "__main__":
+    rotating_file_handler = RotatingFileHandler(
+        "basalisk.log", maxBytes=10000000, backupCount=5
+    )
+    formatter = logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        style="%",
+    )
+    rotating_file_handler.setFormatter(formatter)
+    log.addHandler(rotating_file_handler)
+    main()
