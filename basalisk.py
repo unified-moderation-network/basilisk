@@ -54,7 +54,7 @@ def main():
     push_socket.connect(PULL_REMOTE_ADDR)
 
     db = hyperscan.Database()
-    DEFAULT_EXPRESSIONS = (INVITE_PATTERN,)
+    DEFAULT_EXPRESSIONS = (INVITE_PATTERN.encode(),)
     db.compile(expressions=DEFAULT_EXPRESSIONS)
 
     while True:
