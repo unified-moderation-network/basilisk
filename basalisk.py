@@ -2,19 +2,15 @@ from __future__ import annotations
 
 """
 A really small bit of python glue, wrapping hyperscan as a service
-
-Currently only ships with a single test pattern.
-
-This needs:
-  - a way to update the db on demand
-    - This needs to notify downstream to invalidate any caching
-  - serialization of the last db state
-  - resume load from serialized state
 """
 
+import contextlib
 import logging
-import sys
+import os
+import uuid
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
+from typing import Optional, Set, Tuple
 
 import hyperscan
 import msgpack
@@ -27,9 +23,15 @@ PULL_REMOTE_ADDR = "tcp://127.0.0.1:5556"
 
 MATCH_FOUND_TOPIC = "basalisk.gaze"
 LOOK_FOR_MATCH = "basalisk.offer"
+REFOCUS = "basalisk.refocus"
+
+SERIALIZED_PATH = Path("hs.db")
+EXPRESSIONS_PATH = Path("expressions.list")
 
 #: This is just here for a default pattern to test with
 INVITE_PATTERN = r"(?i)(discord\.(?:gg|io|me|li)|discord(?:app)?\.com\/invite)\/(\S+)"
+
+INVALIDATE_CACHE = b"\x92\xb0cache.invalidate\xa8basalisk"  # msgpack.packb(("cache.invalidate", "basalisk"))
 
 
 def only_once(f):
@@ -45,6 +47,31 @@ def only_once(f):
     return wrapped
 
 
+def atomic_save(path: Path, data: bytes) -> None:
+    """
+    Directory fsync is needed with temp file atomic writes
+    https://lwn.net/Articles/457667/
+    http://man7.org/linux/man-pages/man2/open.2.html#NOTES (synchronous I/O section)
+    """
+    filename = path.stem
+    tmp_file = "{}-{}.tmp".format(filename, uuid.uuid4().fields[0])
+    tmp_path = path.parent / tmp_file
+    with tmp_path.open(mode="wb") as file_:
+        file_.write(data)
+        file_.flush()
+        os.fsync(file_.fileno())
+
+    tmp_path.replace(path)
+    parent_directory_fd: Optional[int] = None
+    try:
+        parent_directory_fd = os.open(path.parent, os.O_DIRECTORY)
+        if parent_directory_fd:
+            os.fsync(parent_directory_fd)
+    finally:
+        if parent_directory_fd:
+            os.close(parent_directory_fd)
+
+
 def match_handler(pattern_id, start, end, flags, context):
     socket, rts = context
     payload = msgpack.packb((MATCH_FOUND_TOPIC, rts))
@@ -58,9 +85,46 @@ def check_match(db, rts, to_check, socket):
     )
 
 
+def get_starting_db_exprs() -> Tuple[hyperscan.Database, Set[str]]:
+
+    if SERIALIZED_PATH.exists() and EXPRESSIONS_PATH.exists():
+        with contextlib.suppress(Exception):
+            with SERIALIZED_PATH.open(mode="rb") as fp_r:
+                db = hyperscan.loadb(fp_r.read())
+            with EXPRESSIONS_PATH.open(mode="r") as fp:
+                expressions = {e for e in fp.readlines() if e}
+
+            return db, expressions
+
+    if EXPRESSIONS_PATH.exists():
+        with EXPRESSIONS_PATH.open(mode="r") as fp:
+            expressions = {e for e in fp.readlines() if e}
+
+        try:
+            db = hyperscan.Database()
+            db.compile(expressions=tuple(expr.encode() for expr in expressions))
+        except Exception as exc:
+            log.exception("Error loading in expressions from file", exc_info=exc)
+        else:
+            return db, expressions
+
+    db = hyperscan.Database()
+    DEFAULT_EXPRESSIONS = (INVITE_PATTERN.encode(),)
+    db.compile(expressions=DEFAULT_EXPRESSIONS)
+
+    return db, {INVITE_PATTERN}
+
+
+def update_db_from_expressions(db: hyperscan.Database, expressions: Set[str]):
+
+    db.compile(expressions=tuple(expr.encode() for expr in expressions))
+    atomic_save(SERIALIZED_PATH, hyperscan.dumpb(db))
+    atomic_save(EXPRESSIONS_PATH, "\n".join(expressions).encode())
+
+
 def main():
 
-    raw_topics = (b"\x92\xaebasalisk.offer",)
+    raw_topics = (b"\x92\xaebasalisk.offer", b"\x92\xb0basalisk.refocus")
 
     ctx = zmq.Context()
     sub_socket = ctx.socket(zmq.SUB)
@@ -70,25 +134,25 @@ def main():
     sub_socket.connect(MULTICAST_SUBSCRIBE_ADDR)
     push_socket.connect(PULL_REMOTE_ADDR)
 
-    db = hyperscan.Database()
-    DEFAULT_EXPRESSIONS = (INVITE_PATTERN.encode(),)
-    db.compile(expressions=DEFAULT_EXPRESSIONS)
+    db, expressions = get_starting_db_exprs()
 
     while True:
         try:
             msg = sub_socket.recv()
 
-            topic, (rts, to_check) = msgpack.unpackb(
-                msg, use_list=False, strict_map_key=False
-            )
+            topic, inner = msgpack.unpackb(msg, use_list=False, strict_map_key=False)
 
             if topic == LOOK_FOR_MATCH:
-                check_match(db, rts, to_check, push_socket)
+                check_match(db, *inner, push_socket)
+            elif topic == REFOCUS:
+                add, remove = inner
+                expressions.intersection_update(add)
+                expressions.difference_update(remove)
+                update_db_from_expressions(db, expressions)
+                push_socket.send(INVALIDATE_CACHE)
 
         except Exception as exc:
-            log.exception(
-                "Error when scanning %s from payload %s", to_check, msg, exc_info=exc
-            )
+            log.exception("Error when scanning from payload %s", msg, exc_info=exc)
 
 
 if __name__ == "__main__":
