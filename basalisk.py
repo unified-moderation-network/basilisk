@@ -116,7 +116,7 @@ def get_starting_db_exprs() -> Tuple[hyperscan.Database, Set[str]]:
 
 
 def update_db_from_expressions(db: hyperscan.Database, expressions: Set[str]):
-
+    log.info("Updating expressions to %s", expressions)
     db.compile(expressions=tuple(expr.encode() for expr in expressions))
     atomic_save(SERIALIZED_PATH, hyperscan.dumpb(db))
     atomic_save(EXPRESSIONS_PATH, "\n".join(expressions).encode())
@@ -135,6 +135,7 @@ def main():
     push_socket.connect(PULL_REMOTE_ADDR)
 
     db, expressions = get_starting_db_exprs()
+    log.info("expressions: %s", expressions)
 
     while True:
         try:
