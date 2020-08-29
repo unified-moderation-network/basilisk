@@ -79,34 +79,45 @@ def match_handler(pattern_id, start, end, flags, context):
 
 
 def check_match(db, rts, to_check, socket):
-    logging.info("Scanning: %s", to_check)
-    db.scan(
-        to_check, match_event_handler=only_once(match_handler), context=(socket, rts)
-    )
+    if not db:
+        logging.info("No DB, skipping scanning: %s", to_check)
+    else:
+        logging.info("Scanning: %s", to_check)
+        db.scan(
+            to_check,
+            match_event_handler=only_once(match_handler),
+            context=(socket, rts),
+        )
 
 
-def get_starting_db_exprs() -> Tuple[hyperscan.Database, Set[str]]:
+def get_starting_db_exprs() -> Tuple[Optional[hyperscan.Database], Set[str]]:
 
     if SERIALIZED_PATH.exists() and EXPRESSIONS_PATH.exists():
         with contextlib.suppress(Exception):
             with SERIALIZED_PATH.open(mode="rb") as fp_r:
                 db = hyperscan.loadb(fp_r.read())
             with EXPRESSIONS_PATH.open(mode="r") as fp:
-                expressions = {e for e in fp.readlines() if e}
+                expressions = {e.strip() for e in fp.readlines() if e}
 
             return db, expressions
 
     if EXPRESSIONS_PATH.exists():
         with EXPRESSIONS_PATH.open(mode="r") as fp:
-            expressions = {e for e in fp.readlines() if e}
+            expressions = {e.strip() for e in fp.readlines() if e}
 
-        try:
-            db = hyperscan.Database()
-            db.compile(expressions=tuple(expr.encode() for expr in expressions))
-        except Exception as exc:
-            log.exception("Error loading in expressions from file", exc_info=exc)
+        if expressions:
+
+            try:
+                db = hyperscan.Database()
+                db.compile(expressions=tuple(expr.encode() for expr in expressions))
+            except Exception as exc:
+                log.exception("Error loading in expressions from file", exc_info=exc)
+            else:
+                return db, expressions
+
         else:
-            return db, expressions
+
+            return None, expressions
 
     db = hyperscan.Database()
     DEFAULT_EXPRESSIONS = (INVITE_PATTERN.encode(),)
@@ -115,11 +126,22 @@ def get_starting_db_exprs() -> Tuple[hyperscan.Database, Set[str]]:
     return db, {INVITE_PATTERN}
 
 
-def update_db_from_expressions(db: hyperscan.Database, expressions: Set[str]):
+def update_db_from_expressions(
+    db: Optional[hyperscan.Database], expressions: Set[str]
+) -> Optional[hyperscan.Database]:
     log.info("Updating expressions to %s", expressions)
-    db.compile(expressions=tuple(expr.encode() for expr in expressions))
-    atomic_save(SERIALIZED_PATH, hyperscan.dumpb(db))
+    if expressions:
+        if not db:
+            db = hyperscan.Database()
+
+        db.compile(expressions=tuple(expr.encode() for expr in expressions))
+        atomic_save(SERIALIZED_PATH, hyperscan.dumpb(db))
+    else:
+        db = None
+
     atomic_save(EXPRESSIONS_PATH, "\n".join(expressions).encode())
+
+    return db
 
 
 def main():
@@ -147,9 +169,9 @@ def main():
                 check_match(db, *inner, push_socket)
             elif topic == REFOCUS:
                 add, remove = inner
-                expressions.intersection_update(add)
+                expressions.update(add)
                 expressions.difference_update(remove)
-                update_db_from_expressions(db, expressions)
+                db = update_db_from_expressions(db, expressions)
                 push_socket.send(INVALIDATE_CACHE)
 
         except Exception as exc:
@@ -167,4 +189,8 @@ if __name__ == "__main__":
     )
     rotating_file_handler.setFormatter(formatter)
     log.addHandler(rotating_file_handler)
+    if __debug__:
+        log.setLevel(logging.INFO)
+    else:
+        log.setLevel(logging.WARNING)
     main()
