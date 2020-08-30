@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-"""
-A really small bit of python glue, wrapping hyperscan as a service
-"""
-
 import contextlib
 import logging
 import os
@@ -28,14 +24,12 @@ REFOCUS = "basalisk.refocus"
 STATUS_CHECK = "status.check"
 STATUS_RESPONSE = "status.response"
 BASALISK = "basalisk"
+INVALIDATE_CACHE = b"\x92\xb0cache.invalidate\xa8basalisk"  # msgpack.packb(("cache.invalidate", "basalisk"))
 
 SERIALIZED_PATH = Path("hs.db")
-EXPRESSIONS_PATH = Path("expressions.list")
+EXPRESSIONS_PATH = Path("patterns.list")
 
-#: This is just here for a default pattern to test with
-INVITE_PATTERN = r"(?i)(discord\.(?:gg|io|me|li)|discord(?:app)?\.com\/invite)\/(\S+)"
-
-INVALIDATE_CACHE = b"\x92\xb0cache.invalidate\xa8basalisk"  # msgpack.packb(("cache.invalidate", "basalisk"))
+__version__ = "0.2.0a"
 
 
 def only_once(f):
@@ -123,11 +117,7 @@ def get_starting_db_exprs() -> Tuple[Optional[hyperscan.Database], Set[str]]:
 
             return None, expressions
 
-    db = hyperscan.Database()
-    DEFAULT_EXPRESSIONS = (INVITE_PATTERN.encode(),)
-    db.compile(expressions=DEFAULT_EXPRESSIONS)
-
-    return db, {INVITE_PATTERN}
+    return None, set()
 
 
 def update_db_from_expressions(
