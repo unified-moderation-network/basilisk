@@ -7,6 +7,7 @@ A really small bit of python glue, wrapping hyperscan as a service
 import contextlib
 import logging
 import os
+import time
 import uuid
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -24,6 +25,9 @@ PULL_REMOTE_ADDR = "tcp://127.0.0.1:5556"
 MATCH_FOUND_TOPIC = "basalisk.gaze"
 LOOK_FOR_MATCH = "basalisk.offer"
 REFOCUS = "basalisk.refocus"
+STATUS_CHECK = "status.check"
+STATUS_RESPONSE = "status.response"
+BASALISK = "basalisk"
 
 SERIALIZED_PATH = Path("hs.db")
 EXPRESSIONS_PATH = Path("expressions.list")
@@ -146,7 +150,11 @@ def update_db_from_expressions(
 
 def main():
 
-    raw_topics = (b"\x92\xaebasalisk.offer", b"\x92\xb0basalisk.refocus")
+    raw_topics = (
+        b"\x92\xaebasalisk.offer",
+        b"\x92\xb0basalisk.refocus",
+        b"\x92\xacstatus.check",
+    )
 
     ctx = zmq.Context()
     sub_socket = ctx.socket(zmq.SUB)
@@ -158,6 +166,8 @@ def main():
 
     db, expressions = get_starting_db_exprs()
     log.info("expressions: %s", expressions)
+
+    up_at = int(time.time())
 
     while True:
         try:
@@ -173,6 +183,14 @@ def main():
                 expressions.difference_update(remove)
                 db = update_db_from_expressions(db, expressions)
                 push_socket.send(INVALIDATE_CACHE)
+            elif topic == STATUS_CHECK:
+                payload = msgpack.packb(
+                    (
+                        STATUS_RESPONSE,
+                        (inner, BASALISK, up_at, {"patterns": tuple(expressions)}),
+                    )
+                )
+                push_socket.send(payload)
 
         except Exception as exc:
             log.exception("Error when scanning from payload %s", msg, exc_info=exc)
