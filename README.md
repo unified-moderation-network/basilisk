@@ -6,7 +6,7 @@ Freeze spam in its tracks
 
 This is the content filtering component for the Unified moderation network.
 
-The current state is a small service which just responds based on a static config.
+This will later expand to support a full set of automoderation rules, not just filtering.
 
 
 ### Long term
@@ -17,5 +17,5 @@ and just generally do it's one thing well.
 
 ### Build details
 
-Requires hyperscan, wheel won't build without it.
+Requires hyperscan.
 There's more to this that I need to document and script for deployment later. (TODO)
