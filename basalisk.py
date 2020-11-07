@@ -28,18 +28,18 @@ import hyperscan
 import msgpack
 import zmq
 
-log = logging.getLogger("basalisk")
+log = logging.getLogger("basilisk")
 
 MULTICAST_SUBSCRIBE_ADDR = "tcp://127.0.0.1:5555"
 PULL_REMOTE_ADDR = "tcp://127.0.0.1:5556"
 
-MATCH_FOUND_TOPIC = "basalisk.gaze"
-LOOK_FOR_MATCH = "basalisk.offer"
-REFOCUS = "basalisk.refocus"
+MATCH_FOUND_TOPIC = "basilisk.gaze"
+LOOK_FOR_MATCH = "basilisk.offer"
+REFOCUS = "basilisk.refocus"
 STATUS_CHECK = "status.check"
 STATUS_RESPONSE = "status.response"
-BASALISK = "basalisk"
-INVALIDATE_CACHE = b"\x92\xb0cache.invalidate\xa8basalisk"  # msgpack.packb(("cache.invalidate", "basalisk"))
+BASILISK = "basilisk"
+INVALIDATE_CACHE = b"\x92\xb0cache.invalidate\xa8basilisk"  # msgpack.packb(("cache.invalidate", "basilisk"))
 
 SERIALIZED_PATH = Path("hs.db")
 EXPRESSIONS_PATH = Path("patterns.list")
@@ -156,8 +156,8 @@ def update_db_from_expressions(
 def main():
 
     raw_topics = (
-        b"\x92\xaebasalisk.offer",
-        b"\x92\xb0basalisk.refocus",
+        b"\x92\xaebasilisk.offer",
+        b"\x92\xb0basilisk.refocus",
         b"\x92\xacstatus.check",
     )
 
@@ -192,7 +192,7 @@ def main():
                 payload = msgpack.packb(
                     (
                         STATUS_RESPONSE,
-                        (inner, BASALISK, up_at, {"patterns": tuple(expressions)}),
+                        (inner, BASILISK, up_at, {"patterns": tuple(expressions)}),
                     )
                 )
                 push_socket.send(payload)
@@ -203,7 +203,7 @@ def main():
 
 if __name__ == "__main__":
     rotating_file_handler = RotatingFileHandler(
-        "basalisk.log", maxBytes=10000000, backupCount=5
+        "basilisk.log", maxBytes=10000000, backupCount=5
     )
     formatter = logging.Formatter(
         "[%(asctime)s] [%(levelname)s] %(name)s: %(message)s",
