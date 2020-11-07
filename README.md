@@ -1,4 +1,4 @@
-# basalisk
+# basilisk
 Freeze spam in its tracks
 
 
