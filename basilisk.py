@@ -1,4 +1,4 @@
-#   Copyright 2020 Michael Hall
+#   Copyright 2020-present Michael Hall
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -30,8 +30,8 @@ import zmq
 
 log = logging.getLogger("basilisk")
 
-MULTICAST_SUBSCRIBE_ADDR = "tcp://127.0.0.1:5555"
-PULL_REMOTE_ADDR = "tcp://127.0.0.1:5556"
+MULTICAST_SUBSCRIBE_ADDR = os.environ.get("MULTICAST_SUBSCRIBE_ADDR", "tcp://127.0.0.1:5555")
+PULL_REMOTE_ADDR = os.environ.get("PULL_REMOTE_ADDR", "tcp://127.0.0.1:5556")
 
 MATCH_FOUND_TOPIC = "basilisk.gaze"
 LOOK_FOR_MATCH = "basilisk.offer"
