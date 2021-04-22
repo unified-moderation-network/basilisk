@@ -46,7 +46,7 @@ INVALIDATE_CACHE = b"\x92\xb0cache.invalidate\xa8basilisk"  # msgpack.packb(("ca
 SERIALIZED_PATH = Path("hs.db")
 EXPRESSIONS_PATH = Path("patterns.list")
 
-__version__ = "0.2.0a"
+__version__ = "0.3.0a"
 
 
 def only_once(f):
