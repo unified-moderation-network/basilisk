@@ -24,7 +24,6 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional, Set, Tuple
 
-import apsw
 import hyperscan
 import msgpack
 import zmq
@@ -36,7 +35,6 @@ PULL_REMOTE_ADDR = os.environ.get("PULL_REMOTE_ADDR", "tcp://127.0.0.1:5556")
 
 MATCH_FOUND_TOPIC = "basilisk.gaze"
 LOOK_FOR_MATCH = "basilisk.offer"
-LOOK_FOR_MATCH_IN_SHAREDMEM = "basilisk.shmstart"
 REFOCUS = "basilisk.refocus"
 STATUS_CHECK = "status.check"
 STATUS_RESPONSE = "status.response"
@@ -105,26 +103,6 @@ def check_match(db, rts, to_check, socket):
         )
 
 
-def check_shm(cursor, db, obj_uuid, push_socket):
-    if not db:
-        return
-
-    row = cursor.execute(
-        """
-        DELETE FROM basilisk WHERE obj_uuid=? RETURNING data;
-        """,
-        (obj_uuid,),
-    ).fetchone()
-    
-    if not row:
-        log.warn("Got request to scan unknown object from sharedmem %s", obj_uuid)
-        return
-    
-    data, = row
-
-    check_match(db, (obj_uuid, None), data, push_socket)
-
-
 def get_starting_db_exprs() -> Tuple[Optional[hyperscan.Database], Set[str]]:
 
     if SERIALIZED_PATH.exists() and EXPRESSIONS_PATH.exists():
@@ -181,7 +159,6 @@ def main():
         b"\x92\xaebasilisk.offer",
         b"\x92\xb0basilisk.refocus",
         b"\x92\xacstatus.check",
-        b"\x92\xb1basilisk.shmstart",
     )
 
     ctx = zmq.Context()
@@ -196,18 +173,6 @@ def main():
     log.info("expressions: %s", expressions)
 
     up_at = int(time.time())
-
-    shared_mem_con = apsw.Connection(":memory:?basilisk")
-    cursor = shared_mem_con.cursor()
-
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS basilisk (
-            object_uuid BLOB NOT NULL PRIMARY KEY,
-            data TEXT NOT NULL
-        );
-        """
-    )
 
     while True:
         try:
@@ -231,8 +196,6 @@ def main():
                     )
                 )
                 push_socket.send(payload)
-            elif topic == LOOK_FOR_MATCH_IN_SHAREDMEM:
-                check_shm(cursor, db, inner, push_socket)
 
         except Exception as exc:
             log.exception("Error when scanning from payload %s", msg, exc_info=exc)
